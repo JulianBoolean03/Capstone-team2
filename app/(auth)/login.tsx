@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
 const ACCENT = '#3B5BFF';
 const SURFACE = '#FFFFFF';
@@ -18,6 +19,7 @@ const MUTED = '#6B7280';
 const BORDER = '#E6E8F0';
 
 export default function AuthScreen() {
+  const router = useRouter();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -33,9 +35,12 @@ export default function AuthScreen() {
     if (isSignup) {
       void fullName;
       void confirmPassword;
+      router.push('/quiz');
+      return;
     }
     void email;
     void password;
+    router.push('/(tabs)');
   };
 
   return (
