@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -12,35 +12,87 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
+import { loginDummyUser, signUpDummyUser, useDummyAuth } from '@/lib/dummy-auth';
+
 const ACCENT = '#3B5BFF';
 const SURFACE = '#FFFFFF';
 const INK = '#101126';
 const MUTED = '#6B7280';
-const BORDER = '#E6E8F0';
 
 export default function AuthScreen() {
   const router = useRouter();
+  const currentUser = useDummyAuth();
+
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('student@university.edu');
+  const [password, setPassword] = useState('password123');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const isSignup = mode === 'signup';
 
-  const primaryLabel = useMemo(() => (isSignup ? 'Sign Up' : 'Login'), [isSignup]);
-
-  const handlePrimary = () => {
-    // TODO: wire to backend auth
-    if (isSignup) {
-      void fullName;
-      void confirmPassword;
-      router.push('/quiz');
+  useEffect(() => {
+    if (!currentUser) {
       return;
     }
-    void email;
-    void password;
-    router.push('/(tabs)');
+
+    if (currentUser.quizCompleted) {
+      router.replace('/(tabs)');
+      return;
+    }
+
+    router.replace('/quiz');
+  }, [currentUser, router]);
+
+  const primaryLabel = useMemo(() => (isSignup ? 'Create Account' : 'Login'), [isSignup]);
+
+  const handlePrimary = () => {
+    setErrorMessage('');
+
+    if (!email.trim() || !password) {
+      setErrorMessage('Email and password are required.');
+      return;
+    }
+
+    if (isSignup) {
+      if (!fullName.trim()) {
+        setErrorMessage('Full name is required for sign up.');
+        return;
+      }
+
+      if (password.length < 6) {
+        setErrorMessage('Use a password with at least 6 characters.');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setErrorMessage('Passwords do not match.');
+        return;
+      }
+
+      const result = signUpDummyUser({ fullName, email, password });
+      if (!result.ok) {
+        setErrorMessage(result.error ?? 'Unable to create account.');
+        return;
+      }
+
+      router.replace('/quiz');
+      return;
+    }
+
+    const result = loginDummyUser({ email, password });
+    if (!result.ok || !result.user) {
+      setErrorMessage(result.error ?? 'Unable to login.');
+      return;
+    }
+
+    if (result.user.quizCompleted) {
+      router.replace('/(tabs)');
+      return;
+    }
+
+    router.replace('/quiz');
   };
 
   return (
@@ -67,27 +119,23 @@ export default function AuthScreen() {
           <View style={styles.segment}>
             <Pressable
               style={[styles.segmentItem, mode === 'login' && styles.segmentActive]}
-              onPress={() => setMode('login')}
+              onPress={() => {
+                setMode('login');
+                setErrorMessage('');
+              }}
             >
-              <Text
-                style={[
-                  styles.segmentText,
-                  mode === 'login' && styles.segmentTextActive,
-                ]}
-              >
+              <Text style={[styles.segmentText, mode === 'login' && styles.segmentTextActive]}>
                 Login
               </Text>
             </Pressable>
             <Pressable
               style={[styles.segmentItem, mode === 'signup' && styles.segmentActive]}
-              onPress={() => setMode('signup')}
+              onPress={() => {
+                setMode('signup');
+                setErrorMessage('');
+              }}
             >
-              <Text
-                style={[
-                  styles.segmentText,
-                  mode === 'signup' && styles.segmentTextActive,
-                ]}
-              >
+              <Text style={[styles.segmentText, mode === 'signup' && styles.segmentTextActive]}>
                 Sign Up
               </Text>
             </Pressable>
@@ -144,6 +192,14 @@ export default function AuthScreen() {
                 onChangeText={setConfirmPassword}
               />
             </View>
+          )}
+
+          {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
+
+          {!isSignup && (
+            <Text style={styles.hintText}>
+              Dummy login: student@university.edu / password123
+            </Text>
           )}
 
           <Pressable style={styles.primaryButton} onPress={handlePrimary}>
@@ -261,25 +317,37 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   input: {
-    height: 42,
-    borderRadius: 10,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: '#EDF0F7',
+    backgroundColor: '#F9FAFC',
+    borderRadius: 9,
+    height: 40,
     paddingHorizontal: 12,
-    fontSize: 13,
+    fontSize: 12.5,
     color: INK,
-    backgroundColor: '#F9FAFB',
+  },
+  errorText: {
+    color: '#B91C1C',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  hintText: {
+    fontSize: 11,
+    color: MUTED,
+    marginBottom: 10,
   },
   primaryButton: {
-    marginTop: 6,
-    backgroundColor: '#0B0F26',
-    borderRadius: 10,
-    paddingVertical: 12,
+    marginTop: 4,
+    height: 42,
+    borderRadius: 9,
+    backgroundColor: '#020426',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

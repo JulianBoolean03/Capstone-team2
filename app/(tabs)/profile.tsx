@@ -1,8 +1,22 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+
+import { logoutDummyUser, useDummyAuth } from "@/lib/dummy-auth";
 
 const TAGS = ["CS 229", "CS 161", "Math 220", "Physics 150"];
 
 export default function ProfileScreen() {
+  const router = useRouter();
+  const currentUser = useDummyAuth();
+
+  const handleLogout = () => {
+    logoutDummyUser();
+    router.replace("/login");
+  };
+
+  const displayName = currentUser?.fullName ?? "Guest User";
+  const displayEmail = currentUser?.email ?? "guest@example.com";
+
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -18,8 +32,8 @@ export default function ProfileScreen() {
             <Image source={{ uri: "https://i.pravatar.cc/200?img=12" }} style={styles.avatar} />
           </View>
 
-          <Text style={styles.name}>John Doe</Text>
-          <Text style={styles.subtitle}>Computer Science • Junior</Text>
+          <Text style={styles.name}>{displayName}</Text>
+          <Text style={styles.subtitle}>{displayEmail}</Text>
 
           <View style={styles.metaRow}>
             <Text style={styles.metaItem}>🏫 Georgia State University</Text>
@@ -78,7 +92,7 @@ export default function ProfileScreen() {
           <Text style={styles.actionArrow}>›</Text>
         </Pressable>
 
-        <Pressable style={[styles.actionBtn, styles.logoutBtn]} onPress={() => {}}>
+        <Pressable style={[styles.actionBtn, styles.logoutBtn]} onPress={handleLogout}>
           <Text style={[styles.actionText, styles.logoutText]}>Log Out</Text>
         </Pressable>
       </View>

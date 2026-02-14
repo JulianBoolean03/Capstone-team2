@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   SafeAreaView,
@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { completeCurrentUserQuiz, useDummyAuth } from '@/lib/dummy-auth';
 
 const ACCENT = '#3B5BFF';
 const SURFACE = '#FFFFFF';
@@ -238,17 +239,33 @@ const QUESTIONS: Question[] = [
 
 export default function QuizScreen() {
   const router = useRouter();
+  const currentUser = useDummyAuth();
   const [answers, setAnswers] = useState<Record<string, string>>({});
 
   const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
+  const allAnswered = answeredCount === QUESTIONS.length;
+
+  useEffect(() => {
+    if (!currentUser) {
+      router.replace('/login');
+      return;
+    }
+
+    if (currentUser.quizCompleted) {
+      router.replace('/(tabs)');
+    }
+  }, [currentUser, router]);
 
   const handleSelect = (questionId: string, optionKey: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: optionKey }));
   };
 
   const handleFinish = () => {
-    // TODO: send quiz answers to backend
-    void answers;
+    if (!allAnswered) {
+      return;
+    }
+
+    completeCurrentUserQuiz(answers);
     router.replace('/(tabs)');
   };
 
@@ -290,7 +307,11 @@ export default function QuizScreen() {
             })}
           </View>
         ))}
-        <Pressable style={styles.primaryButton} onPress={handleFinish}>
+        <Pressable
+          style={[styles.primaryButton, !allAnswered && styles.primaryButtonDisabled]}
+          onPress={handleFinish}
+          disabled={!allAnswered}
+        >
           <Text style={styles.primaryText}>Finish Quiz</Text>
         </Pressable>
       </ScrollView>
@@ -400,6 +421,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
+  },
+  primaryButtonDisabled: {
+    opacity: 0.5,
   },
   primaryText: {
     color: '#FFFFFF',
