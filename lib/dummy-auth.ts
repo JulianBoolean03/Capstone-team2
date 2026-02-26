@@ -1,19 +1,21 @@
 import { useSyncExternalStore } from 'react';
 
+import { apiRequest } from '@/lib/api';
+
 export type QuizAnswers = Record<string, string>;
 
 export type DummyUser = {
   id: string;
   fullName: string;
   email: string;
-  password: string;
   quizCompleted: boolean;
-  quizAnswers?: QuizAnswers;
+  quizAnswers?: QuizAnswers | null;
+  createdAt?: string;
 };
 
 type AuthState = {
-  users: DummyUser[];
-  sessionUserId: string | null;
+  user: DummyUser | null;
+  token: string | null;
 };
 
 type AuthResult = {
@@ -22,24 +24,39 @@ type AuthResult = {
   user?: DummyUser;
 };
 
-const initialState: AuthState = {
-  users: [
-    {
-      id: 'demo-1',
-      fullName: 'Demo Student',
-      email: 'student@university.edu',
-      password: 'password123',
-      quizCompleted: false,
-    },
-  ],
-  sessionUserId: null,
+export type RecommendationCard = {
+  id: string;
+  fullName: string;
+  email: string;
+  matchPct: number;
+  relation: 'none' | 'request_sent' | 'request_received' | 'friends';
+  requestId: string | null;
 };
 
-const store: AuthState = globalThis.__dummyAuthStore ?? {
-  users: [...initialState.users],
-  sessionUserId: initialState.sessionUserId,
+export type FriendRequestsPayload = {
+  incoming: Array<{
+    id: string;
+    sender: DummyUser;
+    createdAt: string;
+  }>;
+  outgoing: Array<{
+    id: string;
+    receiver: DummyUser;
+    createdAt: string;
+  }>;
+  friends: Array<{
+    id: string;
+    fullName: string;
+    email: string;
+    connectedAt: string;
+  }>;
 };
-globalThis.__dummyAuthStore = store;
+
+const store: AuthState = globalThis.__authStore ?? {
+  user: null,
+  token: null,
+};
+globalThis.__authStore = store;
 
 const listeners = new Set<() => void>();
 
@@ -47,8 +64,11 @@ function notify() {
   listeners.forEach((listener) => listener());
 }
 
-function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
+function normalizeError(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return 'Something went wrong.';
 }
 
 export function subscribeAuth(listener: () => void) {
@@ -61,82 +81,160 @@ export function useDummyAuth() {
 }
 
 export function getCurrentUser() {
-  if (!store.sessionUserId) {
-    return null;
-  }
-
-  return store.users.find((user) => user.id === store.sessionUserId) ?? null;
+  return store.user;
 }
 
-export function signUpDummyUser(input: {
+export function hasAuthToken() {
+  return !!store.token;
+}
+
+export async function signUpDummyUser(input: {
   fullName: string;
   email: string;
   password: string;
-}): AuthResult {
-  const fullName = input.fullName.trim();
-  const email = normalizeEmail(input.email);
-  const password = input.password;
+}): Promise<AuthResult> {
+  try {
+    const data = await apiRequest<{ token: string; user: DummyUser }>('/auth/signup', {
+      method: 'POST',
+      json: input,
+    });
 
-  if (!fullName || !email || !password) {
-    return { ok: false, error: 'Please fill in all required fields.' };
+    store.token = data.token;
+    store.user = data.user;
+    notify();
+
+    return { ok: true, user: data.user };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
   }
-
-  const alreadyExists = store.users.some((user) => normalizeEmail(user.email) === email);
-  if (alreadyExists) {
-    return { ok: false, error: 'An account with this email already exists.' };
-  }
-
-  const user: DummyUser = {
-    id: `user-${Date.now()}`,
-    fullName,
-    email,
-    password,
-    quizCompleted: false,
-  };
-
-  store.users.push(user);
-  store.sessionUserId = user.id;
-  notify();
-
-  return { ok: true, user };
 }
 
-export function loginDummyUser(input: { email: string; password: string }): AuthResult {
-  const email = normalizeEmail(input.email);
-  const password = input.password;
+export async function loginDummyUser(input: {
+  email: string;
+  password: string;
+}): Promise<AuthResult> {
+  try {
+    const data = await apiRequest<{ token: string; user: DummyUser }>('/auth/login', {
+      method: 'POST',
+      json: input,
+    });
 
-  const user = store.users.find(
-    (candidate) => normalizeEmail(candidate.email) === email && candidate.password === password,
-  );
+    store.token = data.token;
+    store.user = data.user;
+    notify();
 
-  if (!user) {
-    return { ok: false, error: 'Invalid email or password.' };
+    return { ok: true, user: data.user };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
+  }
+}
+
+export async function refreshCurrentUser(): Promise<AuthResult> {
+  if (!store.token) {
+    store.user = null;
+    notify();
+    return { ok: false, error: 'Not authenticated.' };
   }
 
-  store.sessionUserId = user.id;
-  notify();
-
-  return { ok: true, user };
+  try {
+    const data = await apiRequest<{ user: DummyUser }>('/auth/me', { method: 'GET' }, store.token);
+    store.user = data.user;
+    notify();
+    return { ok: true, user: data.user };
+  } catch (error) {
+    store.token = null;
+    store.user = null;
+    notify();
+    return { ok: false, error: normalizeError(error) };
+  }
 }
 
 export function logoutDummyUser() {
-  store.sessionUserId = null;
+  store.token = null;
+  store.user = null;
   notify();
 }
 
-export function completeCurrentUserQuiz(answers: QuizAnswers): AuthResult {
-  const currentUser = getCurrentUser();
-  if (!currentUser) {
-    return { ok: false, error: 'No logged-in user found.' };
+export async function completeCurrentUserQuiz(answers: QuizAnswers): Promise<AuthResult> {
+  if (!store.token) {
+    return { ok: false, error: 'Not authenticated.' };
   }
 
-  currentUser.quizCompleted = true;
-  currentUser.quizAnswers = answers;
-  notify();
+  try {
+    const data = await apiRequest<{ user: DummyUser }>(
+      '/quiz/submit',
+      {
+        method: 'POST',
+        json: { answers },
+      },
+      store.token,
+    );
 
-  return { ok: true, user: currentUser };
+    store.user = data.user;
+    notify();
+
+    return { ok: true, user: data.user };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
+  }
+}
+
+export async function fetchRecommendations() {
+  if (!store.token) {
+    return [] as RecommendationCard[];
+  }
+
+  const data = await apiRequest<{ students: RecommendationCard[] }>(
+    '/discover',
+    { method: 'GET' },
+    store.token,
+  );
+
+  return data.students;
+}
+
+export async function sendFriendRequest(receiverId: string) {
+  if (!store.token) {
+    throw new Error('Not authenticated.');
+  }
+
+  await apiRequest(
+    '/friends/request',
+    {
+      method: 'POST',
+      json: { receiverId },
+    },
+    store.token,
+  );
+}
+
+export async function fetchFriendRequests() {
+  if (!store.token) {
+    return {
+      incoming: [],
+      outgoing: [],
+      friends: [],
+    } as FriendRequestsPayload;
+  }
+
+  return apiRequest<FriendRequestsPayload>('/friends/requests', { method: 'GET' }, store.token);
+}
+
+export async function respondToFriendRequest(requestId: string, action: 'accept' | 'decline') {
+  if (!store.token) {
+    throw new Error('Not authenticated.');
+  }
+
+  await apiRequest(
+    `/friends/request/${requestId}/respond`,
+    {
+      method: 'POST',
+      json: { action },
+    },
+    store.token,
+  );
 }
 
 declare global {
-  var __dummyAuthStore: AuthState | undefined;
+  var __authStore: AuthState | undefined;
 }

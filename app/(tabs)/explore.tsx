@@ -1,6 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Image,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -8,215 +7,148 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from "react-native";
+} from 'react-native';
 
-type StudentCard = {
-  id: string;
-  name: string;
-  major: string;
-  year: string;
-  location: string;
-  matchPct: number;
-  bio: string;
-  courses: string[];
-  availability: string[];
-  preferences: string[];
-  avatarUrl: string;
-};
+import {
+  fetchRecommendations,
+  RecommendationCard,
+  sendFriendRequest,
+} from '@/lib/dummy-auth';
+
+type GroupTab = 'Students' | 'Groups';
 
 export default function ExploreScreen() {
-  const [activeTab, setActiveTab] = useState<"Students" | "Groups">("Students");
-  const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<GroupTab>('Students');
+  const [query, setQuery] = useState('');
+  const [students, setStudents] = useState<RecommendationCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const students: StudentCard[] = useMemo(
-    () => [
-      {
-        id: "emma",
-        name: "Emma Wilson",
-        major: "Computer Science",
-        year: "Junior",
-        location: "Palo Alto, CA",
-        matchPct: 95,
-        bio:
-          "Looking for study partners for machine learning. Love collaborative problem solving!",
-        courses: ["CS 229", "CS 161", "Math 220"],
-        availability: ["Evening", "Library"],
-        preferences: ["One-on-One"],
-        avatarUrl: "https://i.pravatar.cc/150?img=32",
-      },
-      {
-        id: "liam",
-        name: "Liam Thompson",
-        major: "Mathematics",
-        year: "Sophomore",
-        location: "Palo Alto, CA",
-        matchPct: 88,
-        bio: "Math enthusiast seeking partners for problem sets and exam prep.",
-        courses: ["Math 220", "CS 103", "Physics 150"],
-        availability: ["Afternoon"],
-        preferences: ["Coffee Shop", "Group Study"],
-        avatarUrl: "https://i.pravatar.cc/150?img=12",
-      },
-    ],
-    []
-  );
+  const loadRecommendations = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await fetchRecommendations();
+      setStudents(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load recommendations.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRecommendations();
+  }, [loadRecommendations]);
 
   const filteredStudents = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return students;
 
     return students.filter((s) => {
-      const haystack = [
-        s.name,
-        s.major,
-        s.year,
-        s.location,
-        s.bio,
-        ...s.courses,
-        ...s.availability,
-        ...s.preferences,
-      ]
-        .join(" ")
-        .toLowerCase();
-
+      const haystack = [s.fullName, s.email, `${s.matchPct}%`].join(' ').toLowerCase();
       return haystack.includes(q);
     });
   }, [query, students]);
 
+  const handleAddFriend = async (receiverId: string) => {
+    try {
+      await sendFriendRequest(receiverId);
+      await loadRecommendations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to send request.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => {}}>
-            <Text style={styles.backText}>←</Text>
-          </TouchableOpacity>
-
+          <View style={styles.backBtn} />
           <Text style={styles.headerTitle}>Discover</Text>
-
-          <View style={{ width: 44 }} />
+          <TouchableOpacity style={styles.refreshBtn} onPress={loadRecommendations}>
+            <Text style={styles.refreshText}>↻</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Segmented Control */}
         <View style={styles.segmentWrap}>
           <TouchableOpacity
-            style={[
-              styles.segmentBtn,
-              activeTab === "Students" && styles.segmentBtnActive,
-            ]}
-            onPress={() => setActiveTab("Students")}
-          >
-            <Text
-              style={[
-                styles.segmentText,
-                activeTab === "Students" && styles.segmentTextActive,
-              ]}
-            >
+            style={[styles.segmentBtn, activeTab === 'Students' && styles.segmentBtnActive]}
+            onPress={() => setActiveTab('Students')}>
+            <Text style={[styles.segmentText, activeTab === 'Students' && styles.segmentTextActive]}>
               Students
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[
-              styles.segmentBtn,
-              activeTab === "Groups" && styles.segmentBtnActiveLight,
-            ]}
-            onPress={() => setActiveTab("Groups")}
-          >
-            <Text
-              style={[
-                styles.segmentText,
-                activeTab === "Groups" && styles.segmentTextDark,
-              ]}
-            >
+            style={[styles.segmentBtn, activeTab === 'Groups' && styles.segmentBtnActiveLight]}
+            onPress={() => setActiveTab('Groups')}>
+            <Text style={[styles.segmentText, activeTab === 'Groups' && styles.segmentTextDark]}>
               Groups
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Search */}
         <View style={styles.searchWrap}>
           <Text style={styles.searchIcon}>🔎</Text>
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder={
-              activeTab === "Students" ? "Search students..." : "Search groups..."
-            }
+            placeholder={activeTab === 'Students' ? 'Search students...' : 'Search groups...'}
             placeholderTextColor="#9AA3B2"
             style={styles.searchInput}
           />
         </View>
 
-        {/* Content */}
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {activeTab === "Students" ? (
-            filteredStudents.map((s) => (
-              <View key={s.id} style={styles.card}>
-                <View style={styles.cardTopRow}>
-                  <Image source={{ uri: s.avatarUrl }} style={styles.avatar} />
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {activeTab === 'Students' ? (
+            <>
+              {loading && <Text style={styles.infoText}>Loading recommendations...</Text>}
+              {!!error && <Text style={styles.errorText}>{error}</Text>}
+              {!loading && !filteredStudents.length && (
+                <Text style={styles.infoText}>No recommendations yet. Ask more users to complete the quiz.</Text>
+              )}
 
-                  <View style={styles.cardTopText}>
+              {!loading &&
+                filteredStudents.map((s) => (
+                  <View key={s.id} style={styles.card}>
                     <View style={styles.nameRow}>
-                      <Text style={styles.name}>{s.name}</Text>
-
+                      <Text style={styles.name}>{s.fullName}</Text>
                       <View style={styles.matchPill}>
-                        <Text style={styles.matchPillText}>
-                          {s.matchPct}% Match
-                        </Text>
+                        <Text style={styles.matchPillText}>{s.matchPct}% Match</Text>
                       </View>
                     </View>
 
-                    <Text style={styles.subtitle}>
-                      {s.major} • {s.year}
-                    </Text>
+                    <Text style={styles.subtitle}>{s.email}</Text>
 
-                    <View style={styles.locationRow}>
-                      <Text style={styles.locationIcon}>📍</Text>
-                      <Text style={styles.locationText}>{s.location}</Text>
-                    </View>
+                    {s.relation === 'none' && (
+                      <TouchableOpacity style={styles.messageBtn} onPress={() => handleAddFriend(s.id)}>
+                        <Text style={styles.messageBtnText}>+ Add Friend</Text>
+                      </TouchableOpacity>
+                    )}
+                    {s.relation === 'request_sent' && (
+                      <View style={[styles.messageBtn, styles.messageBtnMuted]}>
+                        <Text style={[styles.messageBtnText, styles.messageBtnTextMuted]}>Request Sent</Text>
+                      </View>
+                    )}
+                    {s.relation === 'request_received' && (
+                      <View style={[styles.messageBtn, styles.messageBtnMuted]}>
+                        <Text style={[styles.messageBtnText, styles.messageBtnTextMuted]}>Sent You a Request</Text>
+                      </View>
+                    )}
+                    {s.relation === 'friends' && (
+                      <View style={[styles.messageBtn, styles.messageBtnSuccess]}>
+                        <Text style={styles.messageBtnText}>Friends ✓</Text>
+                      </View>
+                    )}
                   </View>
-                </View>
-
-                <Text style={styles.bio}>{s.bio}</Text>
-
-                {/* Tags rows */}
-                <View style={styles.tagRow}>
-                  {s.courses.map((t) => (
-                    <View key={`${s.id}-c-${t}`} style={styles.tag}>
-                      <Text style={styles.tagText}>{t}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <View style={styles.tagRow}>
-                  {s.availability.map((t) => (
-                    <View key={`${s.id}-a-${t}`} style={styles.tagSoft}>
-                      <Text style={styles.tagText}>{t}</Text>
-                    </View>
-                  ))}
-                  {s.preferences.map((t) => (
-                    <View key={`${s.id}-p-${t}`} style={styles.tagSoft}>
-                      <Text style={styles.tagText}>{t}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <TouchableOpacity style={styles.messageBtn} onPress={() => {}}>
-                  <Text style={styles.messageBtnText}>💬  Send Message</Text>
-                </TouchableOpacity>
-              </View>
-            ))
+                ))}
+            </>
           ) : (
             <View style={styles.emptyState}>
               <Text style={styles.emptyTitle}>Groups (coming soon)</Text>
-              <Text style={styles.emptyText}>
-                For SCRUM-21 we can focus on matching the Students UI first. If
-                your Jira wants Groups too, tell me and we’ll build that next.
-              </Text>
+              <Text style={styles.emptyText}>Student matching is now implemented with quiz-based scoring.</Text>
             </View>
           )}
         </ScrollView>
@@ -226,28 +158,27 @@ export default function ExploreScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#FFFFFF" },
+  safe: { flex: 1, backgroundColor: '#FFFFFF' },
   container: { flex: 1, paddingHorizontal: 16 },
-
   header: {
     height: 54,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  backBtn: {
+  backBtn: { width: 44 },
+  refreshBtn: {
     width: 44,
     height: 44,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  backText: { fontSize: 18, color: "#111827" },
-  headerTitle: { fontSize: 20, fontWeight: "700", color: "#111827" },
-
+  refreshText: { fontSize: 18, color: '#111827' },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: '#111827' },
   segmentWrap: {
     marginTop: 6,
-    flexDirection: "row",
-    backgroundColor: "#F3F4F6",
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
     borderRadius: 14,
     padding: 6,
   },
@@ -255,110 +186,75 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  segmentBtnActive: {
-    backgroundColor: "#0B1020",
-  },
-  segmentBtnActiveLight: {
-    backgroundColor: "#FFFFFF",
-  },
-  segmentText: { fontSize: 15, fontWeight: "600" },
-  segmentTextActive: { color: "#FFFFFF" },
-  segmentTextDark: { color: "#111827" },
-
+  segmentBtnActive: { backgroundColor: '#2E5BFF' },
+  segmentBtnActiveLight: { backgroundColor: '#FFFFFF' },
+  segmentText: { fontWeight: '700', color: '#5B6476' },
+  segmentTextActive: { color: '#FFFFFF' },
+  segmentTextDark: { color: '#111827' },
   searchWrap: {
     marginTop: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    height: 44,
   },
-  searchIcon: { marginRight: 8, fontSize: 16 },
-  searchInput: { flex: 1, fontSize: 15, color: "#111827" },
-
-  scrollContent: { paddingBottom: 24, paddingTop: 12 },
-
+  searchIcon: { marginRight: 8 },
+  searchInput: { flex: 1, color: '#111827' },
+  scrollContent: { paddingTop: 12, paddingBottom: 22 },
+  infoText: { color: '#4B5563', marginBottom: 12 },
+  errorText: { color: '#B91C1C', marginBottom: 12, fontWeight: '600' },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 14,
-  },
-  cardTopRow: { flexDirection: "row" },
-  avatar: { width: 56, height: 56, borderRadius: 28, marginRight: 12 },
-  cardTopText: { flex: 1 },
-
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  name: { fontSize: 18, fontWeight: "800", color: "#111827", flex: 1 },
-
-  matchPill: {
-    backgroundColor: "#F3F4F6",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  matchPillText: { fontSize: 12, fontWeight: "700", color: "#111827" },
-
-  subtitle: { marginTop: 2, fontSize: 13, color: "#374151", fontWeight: "600" },
-
-  locationRow: { marginTop: 4, flexDirection: "row", alignItems: "center" },
-  locationIcon: { marginRight: 6, fontSize: 13 },
-  locationText: { fontSize: 13, color: "#6B7280", fontWeight: "600" },
-
-  bio: {
-    marginTop: 10,
-    fontSize: 14,
-    lineHeight: 20,
-    color: "#374151",
-    fontWeight: "500",
-  },
-
-  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
-  tag: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
-  tagSoft: {
-    backgroundColor: "#F3F4F6",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
-  tagText: { fontSize: 12, fontWeight: "700", color: "#111827" },
-
-  messageBtn: {
-    marginTop: 14,
-    height: 46,
+    backgroundColor: '#F8FAFF',
     borderRadius: 14,
-    backgroundColor: "#0B1020",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  messageBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
-
-  emptyState: {
-    marginTop: 40,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: '#E5EAF8',
+    padding: 14,
+    marginBottom: 12,
   },
-  emptyTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
-  emptyText: { marginTop: 6, fontSize: 13, color: "#374151", lineHeight: 18 },
+  nameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  name: { fontSize: 16, fontWeight: '800', color: '#111827', flex: 1 },
+  subtitle: { marginTop: 4, color: '#5B6476' },
+  matchPill: {
+    backgroundColor: '#E8EEFF',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  matchPillText: { color: '#2E5BFF', fontWeight: '800', fontSize: 12 },
+  messageBtn: {
+    marginTop: 12,
+    borderRadius: 12,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  messageBtnMuted: {
+    backgroundColor: '#F3F4F6',
+  },
+  messageBtnSuccess: {
+    backgroundColor: '#E8F7ED',
+  },
+  messageBtnText: { color: '#FFFFFF', fontWeight: '700' },
+  messageBtnTextMuted: { color: '#374151' },
+  emptyState: {
+    backgroundColor: '#F8FAFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5EAF8',
+    padding: 16,
+  },
+  emptyTitle: { fontWeight: '800', color: '#111827', marginBottom: 6 },
+  emptyText: { color: '#4B5563' },
 });

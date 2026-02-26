@@ -29,6 +29,7 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('password123');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isSignup = mode === 'signup';
 
@@ -47,7 +48,11 @@ export default function AuthScreen() {
 
   const primaryLabel = useMemo(() => (isSignup ? 'Create Account' : 'Login'), [isSignup]);
 
-  const handlePrimary = () => {
+  const handlePrimary = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     setErrorMessage('');
 
     if (!email.trim() || !password) {
@@ -71,7 +76,9 @@ export default function AuthScreen() {
         return;
       }
 
-      const result = signUpDummyUser({ fullName, email, password });
+      setIsSubmitting(true);
+      const result = await signUpDummyUser({ fullName, email, password });
+      setIsSubmitting(false);
       if (!result.ok) {
         setErrorMessage(result.error ?? 'Unable to create account.');
         return;
@@ -81,7 +88,9 @@ export default function AuthScreen() {
       return;
     }
 
-    const result = loginDummyUser({ email, password });
+    setIsSubmitting(true);
+    const result = await loginDummyUser({ email, password });
+    setIsSubmitting(false);
     if (!result.ok || !result.user) {
       setErrorMessage(result.error ?? 'Unable to login.');
       return;
@@ -198,12 +207,16 @@ export default function AuthScreen() {
 
           {!isSignup && (
             <Text style={styles.hintText}>
-              Dummy login: student@university.edu / password123
+              Use your account credentials to continue.
             </Text>
           )}
 
-          <Pressable style={styles.primaryButton} onPress={handlePrimary}>
-            <Text style={styles.primaryText}>{primaryLabel}</Text>
+          <Pressable
+            style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
+            onPress={handlePrimary}
+            disabled={isSubmitting}
+          >
+            <Text style={styles.primaryText}>{isSubmitting ? 'Please wait...' : primaryLabel}</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -344,6 +357,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#020426',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
   },
   primaryText: {
     color: '#FFFFFF',

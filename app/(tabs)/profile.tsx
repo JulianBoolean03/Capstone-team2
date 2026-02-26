@@ -1,193 +1,204 @@
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 
-import { logoutDummyUser, useDummyAuth } from "@/lib/dummy-auth";
-
-const TAGS = ["CS 229", "CS 161", "Math 220", "Physics 150"];
+import {
+  fetchFriendRequests,
+  FriendRequestsPayload,
+  logoutDummyUser,
+  respondToFriendRequest,
+  useDummyAuth,
+} from '@/lib/dummy-auth';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const currentUser = useDummyAuth();
 
+  const [friendData, setFriendData] = useState<FriendRequestsPayload>({
+    incoming: [],
+    outgoing: [],
+    friends: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await fetchFriendRequests();
+      setFriendData(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load profile data.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   const handleLogout = () => {
     logoutDummyUser();
-    router.replace("/login");
+    router.replace('/login');
   };
 
-  const displayName = currentUser?.fullName ?? "Guest User";
-  const displayEmail = currentUser?.email ?? "guest@example.com";
+  const handleRespond = async (requestId: string, action: 'accept' | 'decline') => {
+    try {
+      await respondToFriendRequest(requestId, action);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update request.');
+    }
+  };
+
+  const displayName = currentUser?.fullName ?? 'Guest User';
+  const displayEmail = currentUser?.email ?? 'guest@example.com';
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Profile</Text>
-          <Pressable style={styles.editBtn} onPress={() => {}}>
-            <Text style={styles.editText}>Edit</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.avatarWrap}>
-            <Image source={{ uri: "https://i.pravatar.cc/200?img=12" }} style={styles.avatar} />
+      <View style={styles.headerCard}>
+        <Text style={styles.headerTitle}>{displayName}</Text>
+        <Text style={styles.headerSubtitle}>{displayEmail}</Text>
+        <View style={styles.statsRow}>
+          <View style={styles.stat}>
+            <Text style={styles.statNum}>{friendData.friends.length}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
           </View>
-
-          <Text style={styles.name}>{displayName}</Text>
-          <Text style={styles.subtitle}>{displayEmail}</Text>
-
-          <View style={styles.metaRow}>
-            <Text style={styles.metaItem}>🏫 Georgia State University</Text>
-            <Text style={styles.metaDot}>•</Text>
-            <Text style={styles.metaItem}>📍 Atlanta, GA</Text>
+          <View style={styles.stat}>
+            <Text style={styles.statNum}>{friendData.incoming.length}</Text>
+            <Text style={styles.statLabel}>Incoming</Text>
           </View>
-
-          <View style={styles.statsRow}>
-            <View style={styles.stat}>
-              <Text style={styles.statNum}>24</Text>
-              <Text style={styles.statLabel}>Study Sessions</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statNum}>18</Text>
-              <Text style={styles.statLabel}>Connections</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statNum}>5</Text>
-              <Text style={styles.statLabel}>Groups</Text>
-            </View>
+          <View style={styles.stat}>
+            <Text style={styles.statNum}>{friendData.outgoing.length}</Text>
+            <Text style={styles.statLabel}>Sent</Text>
           </View>
-
-          <Text style={styles.memberSince}>📅 Member since September 2024</Text>
         </View>
       </View>
 
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>About</Text>
-        <Text style={styles.sectionBody}>
-          CS major, passionate about learning and collaborating. Looking for study partners for
-          algorithms, networking, and math.
-        </Text>
-      </View>
+      {!!error && <Text style={styles.errorText}>{error}</Text>}
 
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Current Courses</Text>
-        <View style={styles.tagsWrap}>
-          {TAGS.map((tag) => (
-            <View key={tag} style={styles.tag}>
-              <Text style={styles.tagText}>{tag}</Text>
+        <Text style={styles.sectionTitle}>Incoming Friend Requests</Text>
+        {loading && <Text style={styles.infoText}>Loading...</Text>}
+        {!loading && !friendData.incoming.length && (
+          <Text style={styles.infoText}>No pending incoming requests.</Text>
+        )}
+        {!loading &&
+          friendData.incoming.map((r) => (
+            <View key={r.id} style={styles.requestRow}>
+              <View style={styles.requestCopy}>
+                <Text style={styles.requestName}>{r.sender.fullName}</Text>
+                <Text style={styles.requestEmail}>{r.sender.email}</Text>
+              </View>
+              <View style={styles.requestActions}>
+                <Pressable style={styles.acceptBtn} onPress={() => handleRespond(r.id, 'accept')}>
+                  <Text style={styles.acceptText}>Accept</Text>
+                </Pressable>
+                <Pressable style={styles.declineBtn} onPress={() => handleRespond(r.id, 'decline')}>
+                  <Text style={styles.declineText}>Decline</Text>
+                </Pressable>
+              </View>
             </View>
           ))}
-        </View>
       </View>
 
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-
-        <Pressable style={styles.actionBtn} onPress={() => {}}>
-          <Text style={styles.actionText}>Account Settings</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </Pressable>
-
-        <Pressable style={styles.actionBtn} onPress={() => {}}>
-          <Text style={styles.actionText}>Privacy</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </Pressable>
-
-        <Pressable style={[styles.actionBtn, styles.logoutBtn]} onPress={handleLogout}>
-          <Text style={[styles.actionText, styles.logoutText]}>Log Out</Text>
-        </Pressable>
+        <Text style={styles.sectionTitle}>Friends</Text>
+        {!friendData.friends.length && <Text style={styles.infoText}>No friends yet.</Text>}
+        {friendData.friends.map((f) => (
+          <View key={f.id} style={styles.friendRow}>
+            <Text style={styles.friendName}>{f.fullName}</Text>
+            <Text style={styles.friendEmail}>{f.email}</Text>
+          </View>
+        ))}
       </View>
+
+      <Pressable style={styles.logoutBtn} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Log Out</Text>
+      </Pressable>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#F3F6FF" },
+  page: { flex: 1, backgroundColor: '#F3F6FF' },
   container: { padding: 16, paddingBottom: 28 },
-  header: { marginBottom: 14 },
-  headerTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  headerCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E6EBF7',
   },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#0B1220" },
-  editBtn: {
-    backgroundColor: "#E9EEFF",
-    paddingHorizontal: 12,
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#0B1220' },
+  headerSubtitle: { marginTop: 4, color: '#5B6476' },
+  statsRow: { flexDirection: 'row', marginTop: 14, gap: 10 },
+  stat: {
+    flex: 1,
+    backgroundColor: '#F7F9FF',
+    borderRadius: 12,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  statNum: { fontSize: 18, fontWeight: '800', color: '#2F5CFF' },
+  statLabel: { marginTop: 2, color: '#5B6476', fontSize: 12, fontWeight: '600' },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E6EBF7',
+  },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#0B1220', marginBottom: 10 },
+  infoText: { color: '#5B6476' },
+  errorText: { color: '#B91C1C', fontWeight: '600', marginBottom: 8 },
+  requestRow: {
+    borderWidth: 1,
+    borderColor: '#EEF1F6',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+    gap: 8,
+  },
+  requestCopy: { gap: 3 },
+  requestName: { fontWeight: '700', color: '#0B1220' },
+  requestEmail: { color: '#5B6476' },
+  requestActions: { flexDirection: 'row', gap: 8 },
+  acceptBtn: {
+    backgroundColor: '#E8F7ED',
     paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 10,
   },
-  editText: { fontWeight: "700", color: "#365CFF" },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    padding: 16,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+  acceptText: { color: '#12663A', fontWeight: '700' },
+  declineBtn: {
+    backgroundColor: '#FFECEC',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
   },
-  avatarWrap: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: "#E9EEFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
+  declineText: { color: '#B42318', fontWeight: '700' },
+  friendRow: {
+    borderWidth: 1,
+    borderColor: '#EEF1F6',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
   },
-  avatar: { width: 76, height: 76, borderRadius: 38 },
-  name: { fontSize: 20, fontWeight: "800", color: "#0B1220" },
-  subtitle: { marginTop: 4, color: "#5B6476", fontWeight: "600" },
-  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
-  metaItem: { color: "#5B6476", fontWeight: "600" },
-  metaDot: { marginHorizontal: 8, color: "#9AA3B2" },
-  statsRow: {
-    flexDirection: "row",
-    width: "100%",
-    justifyContent: "space-between",
+  friendName: { fontWeight: '700', color: '#0B1220' },
+  friendEmail: { marginTop: 3, color: '#5B6476' },
+  logoutBtn: {
     marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: "#EEF1F6",
-  },
-  stat: { flex: 1, alignItems: "center" },
-  statNum: { fontSize: 18, fontWeight: "900", color: "#365CFF" },
-  statLabel: { marginTop: 4, fontSize: 12, color: "#5B6476", fontWeight: "600" },
-  memberSince: { marginTop: 12, color: "#5B6476", fontWeight: "600" },
-  sectionCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    padding: 16,
-    marginTop: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#0B1220" },
-  sectionBody: { marginTop: 8, color: "#5B6476", fontWeight: "600", lineHeight: 20 },
-  tagsWrap: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 8 },
-  tag: {
-    backgroundColor: "#EEF1FF",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  tagText: { color: "#365CFF", fontWeight: "800", fontSize: 12 },
-  actionBtn: {
-    marginTop: 10,
-    backgroundColor: "#F6F7FB",
-    borderRadius: 14,
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
   },
-  actionText: { fontWeight: "700", color: "#0B1220" },
-  actionArrow: { fontSize: 20, color: "#9AA3B2", fontWeight: "900" },
-  logoutBtn: { backgroundColor: "#FFECEC" },
-  logoutText: { color: "#C62828" },
+  logoutText: { color: '#FFFFFF', fontWeight: '700' },
 });

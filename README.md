@@ -48,3 +48,53 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Backend + Postgres setup
+
+This app now includes a backend API (`server/`) with Postgres + Prisma for:
+
+- auth (sign up/login)
+- quiz answer persistence
+- recommendation matching (quiz similarity score)
+- friend requests (send/accept/decline)
+
+### 1. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Update `.env` with your real Postgres connection string and JWT secret.
+
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Generate Prisma client and run migrations
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+### 4. Start backend API
+
+```bash
+npm run api
+```
+
+API defaults to `http://localhost:4000`.
+
+### 5. Start Expo app
+
+```bash
+npm run start
+```
+
+If you run on a physical device, set:
+
+```bash
+EXPO_PUBLIC_API_URL=http://<your-local-ip>:4000
+```

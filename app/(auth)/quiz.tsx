@@ -241,6 +241,8 @@ export default function QuizScreen() {
   const router = useRouter();
   const currentUser = useDummyAuth();
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
   const allAnswered = answeredCount === QUESTIONS.length;
@@ -260,12 +262,21 @@ export default function QuizScreen() {
     setAnswers((prev) => ({ ...prev, [questionId]: optionKey }));
   };
 
-  const handleFinish = () => {
-    if (!allAnswered) {
+  const handleFinish = async () => {
+    if (!allAnswered || isSubmitting) {
       return;
     }
 
-    completeCurrentUserQuiz(answers);
+    setErrorMessage('');
+    setIsSubmitting(true);
+    const result = await completeCurrentUserQuiz(answers);
+    setIsSubmitting(false);
+
+    if (!result.ok) {
+      setErrorMessage(result.error ?? 'Unable to save quiz responses.');
+      return;
+    }
+
     router.replace('/(tabs)');
   };
 
@@ -307,12 +318,13 @@ export default function QuizScreen() {
             })}
           </View>
         ))}
+        {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
         <Pressable
-          style={[styles.primaryButton, !allAnswered && styles.primaryButtonDisabled]}
+          style={[styles.primaryButton, (!allAnswered || isSubmitting) && styles.primaryButtonDisabled]}
           onPress={handleFinish}
-          disabled={!allAnswered}
+          disabled={!allAnswered || isSubmitting}
         >
-          <Text style={styles.primaryText}>Finish Quiz</Text>
+          <Text style={styles.primaryText}>{isSubmitting ? 'Saving...' : 'Finish Quiz'}</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -424,6 +436,13 @@ const styles = StyleSheet.create({
   },
   primaryButtonDisabled: {
     opacity: 0.5,
+  },
+  errorText: {
+    marginTop: 4,
+    marginBottom: 4,
+    color: '#B91C1C',
+    fontSize: 12,
+    fontWeight: '600',
   },
   primaryText: {
     color: '#FFFFFF',
