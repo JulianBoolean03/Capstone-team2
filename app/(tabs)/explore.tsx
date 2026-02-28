@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
@@ -9,6 +10,9 @@ import {
   View,
 } from 'react-native';
 
+import { Avatar } from '@/components/avatar';
+import { useAuth } from '@/hooks/use-auth';
+import { apiRequest } from '@/lib/api';
 import {
   fetchRecommendations,
   RecommendationCard,
@@ -18,11 +22,14 @@ import {
 type GroupTab = 'Students' | 'Groups';
 
 export default function ExploreScreen() {
+  const router = useRouter();
+  const { token } = useAuth();
   const [activeTab, setActiveTab] = useState<GroupTab>('Students');
   const [query, setQuery] = useState('');
   const [students, setStudents] = useState<RecommendationCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [chatLoading, setChatLoading] = useState<string | null>(null);
 
   const loadRecommendations = useCallback(async () => {
     setLoading(true);
@@ -58,6 +65,26 @@ export default function ExploreScreen() {
       await loadRecommendations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to send request.');
+    }
+  };
+
+  const handleOpenChat = async (otherUserId: string, friendName: string) => {
+    try {
+      setChatLoading(otherUserId);
+      const data = await apiRequest<{ conversationId: string }>(
+        '/conversations',
+        { method: 'POST', json: { otherUserId } },
+        token
+      );
+      setChatLoading(null);
+      router.push(`/chat/${data.conversationId}`);
+    } catch (err) {
+      setChatLoading(null);
+      if (err instanceof Error && err.message.includes('not friends')) {
+        setError(`Add ${friendName} as a friend first`);
+      } else {
+        setError(err instanceof Error ? err.message : 'Unable to open chat.');
+      }
     }
   };
 
@@ -113,14 +140,21 @@ export default function ExploreScreen() {
               {!loading &&
                 filteredStudents.map((s) => (
                   <View key={s.id} style={styles.card}>
-                    <View style={styles.nameRow}>
-                      <Text style={styles.name}>{s.fullName}</Text>
+                    <View style={styles.cardHeader}>
+                      <Avatar
+                        name={s.fullName}
+                        backgroundColor={s.avatarBgColor}
+                        textColor={s.avatarTextColor}
+                        size={56}
+                      />
+                      <View style={styles.headerText}>
+                        <Text style={styles.name}>{s.fullName}</Text>
+                        <Text style={styles.subtitle}>{s.email}</Text>
+                      </View>
                       <View style={styles.matchPill}>
                         <Text style={styles.matchPillText}>{s.matchPct}% Match</Text>
                       </View>
                     </View>
-
-                    <Text style={styles.subtitle}>{s.email}</Text>
 
                     {s.relation === 'none' && (
                       <TouchableOpacity style={styles.messageBtn} onPress={() => handleAddFriend(s.id)}>
@@ -138,9 +172,15 @@ export default function ExploreScreen() {
                       </View>
                     )}
                     {s.relation === 'friends' && (
-                      <View style={[styles.messageBtn, styles.messageBtnSuccess]}>
-                        <Text style={styles.messageBtnText}>Friends ✓</Text>
-                      </View>
+                      <TouchableOpacity
+                        style={[styles.messageBtn, styles.messageBtnSuccess]}
+                        onPress={() => handleOpenChat(s.id, s.fullName)}
+                        disabled={chatLoading === s.id}
+                      >
+                        <Text style={styles.messageBtnText}>
+                          {chatLoading === s.id ? '⏳ Opening...' : '💬 Message'}
+                        </Text>
+                      </TouchableOpacity>
                     )}
                   </View>
                 ))}
@@ -217,14 +257,23 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  headerText: {
+    flex: 1,
+  },
   nameRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
   },
-  name: { fontSize: 16, fontWeight: '800', color: '#111827', flex: 1 },
-  subtitle: { marginTop: 4, color: '#5B6476' },
+  name: { fontSize: 16, fontWeight: '800', color: '#111827' },
+  subtitle: { marginTop: 4, color: '#5B6476', fontSize: 13 },
   matchPill: {
     backgroundColor: '#E8EEFF',
     borderRadius: 999,

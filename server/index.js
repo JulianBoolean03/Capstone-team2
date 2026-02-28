@@ -1,16 +1,57 @@
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const http = require('http');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 const { prisma } = require('./db');
 const { signToken, requireAuth } = require('./auth');
 const { computeMatch } = require('./recommendation');
+const { sanitizeMessageContent } = require('./sanitizer');
+
+// Expo SDK will be dynamically imported when needed for push notifications
+let expoClient = null;
+const initExpoClient = async () => {
+  if (!expoClient) {
+    const { Expo } = await import('expo-server-sdk');
+    expoClient = new Expo();
+  }
+  return expoClient;
+};
 
 const app = express();
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
+
 const PORT = Number(process.env.PORT || 4000);
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 
 app.use(cors());
 app.use(express.json());
+
+// ─── Socket.io JWT Authentication Middleware ──────────────────────────────
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+
+  if (!token) {
+    return next(new Error('Missing auth token'));
+  }
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    socket.userId = payload.sub;
+    socket.selectedConversationId = null; // Track which conversation the user is viewing
+    return next();
+  } catch (err) {
+    return next(new Error('Invalid auth token'));
+  }
+});
 
 app.get('/', (_req, res) => {
   res.json({
@@ -27,6 +68,8 @@ function toPublicUser(user) {
     email: user.email,
     quizCompleted: user.quizCompleted,
     quizAnswers: user.quizAnswers || null,
+    avatarBgColor: user.avatarBgColor,
+    avatarTextColor: user.avatarTextColor,
     createdAt: user.createdAt,
   };
 }
@@ -263,15 +306,15 @@ app.post('/friends/request', requireAuth, async (req, res) => {
 
     const request = existing
       ? await prisma.friendRequest.update({
-          where: { id: existing.id },
-          data: { status: 'pending' },
-        })
+        where: { id: existing.id },
+        data: { status: 'pending' },
+      })
       : await prisma.friendRequest.create({
-          data: {
-            senderId: req.userId,
-            receiverId,
-          },
-        });
+        data: {
+          senderId: req.userId,
+          receiverId,
+        },
+      });
 
     return res.status(201).json({ request });
   } catch (error) {
@@ -332,6 +375,8 @@ app.get('/friends/requests', requireAuth, async (req, res) => {
           id: friend.id,
           fullName: friend.fullName,
           email: friend.email,
+          avatarBgColor: friend.avatarBgColor,
+          avatarTextColor: friend.avatarTextColor,
           connectedAt: f.createdAt,
         };
       }),
@@ -394,6 +439,456 @@ app.post('/friends/request/:id/respond', requireAuth, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`API listening on http://localhost:${PORT}`);
+// ─── CHAT API ENDPOINTS ────────────────────────────────────────────────────
+
+// GET /conversations — list all conversations for the logged-in user
+app.get('/conversations', requireAuth, async (req, res) => {
+  try {
+    const conversations = await prisma.conversation.findMany({
+      where: {
+        OR: [
+          { userAId: req.userId },
+          { userBId: req.userId },
+        ],
+      },
+      include: {
+        userA: true,
+        userB: true,
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+
+    const result = await Promise.all(
+      conversations.map(async (conv) => {
+        const otherUser = conv.userAId === req.userId ? conv.userB : conv.userA;
+        const lastMessage = conv.messages[0];
+
+        const unreadCount = await prisma.message.count({
+          where: {
+            conversationId: conv.id,
+            senderId: { not: req.userId },
+            readAt: null,
+          },
+        });
+
+        return {
+          id: conv.id,
+          otherUser: toPublicUser(otherUser),
+          lastMessage: lastMessage
+            ? {
+              id: lastMessage.id,
+              content: lastMessage.content,
+              senderId: lastMessage.senderId,
+              createdAt: lastMessage.createdAt,
+              readAt: lastMessage.readAt,
+            }
+            : null,
+          lastMessageAt: conv.lastMessageAt,
+          unreadCount,
+        };
+      })
+    );
+
+    return res.json({ conversations: result });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load conversations.' });
+  }
+});
+
+// GET /conversations/:conversationId/messages — fetch last 100 messages
+app.get('/conversations/:conversationId/messages', requireAuth, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found.' });
+    }
+
+    // Verify requester is a participant
+    if (conversation.userAId !== req.userId && conversation.userBId !== req.userId) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    const messages = await prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    return res.json({ messages: messages.reverse() });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load messages.' });
+  }
+});
+
+// GET /conversations/:conversationId — get single conversation with otherUser details
+app.get('/conversations/:conversationId', requireAuth, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found.' });
+    }
+
+    // Verify requester is a participant
+    if (conversation.userAId !== req.userId && conversation.userBId !== req.userId) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    // Get the other user's details
+    const otherUserId = conversation.userAId === req.userId ? conversation.userBId : conversation.userAId;
+    const otherUser = await prisma.user.findUnique({
+      where: { id: otherUserId },
+      select: { id: true, fullName: true },
+    });
+
+    return res.json({
+      id: conversation.id,
+      otherUser,
+      lastMessageAt: conversation.lastMessageAt,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load conversation.' });
+  }
+});
+
+// PATCH /conversations/:conversationId/read — mark all unread messages as read
+app.patch('/conversations/:conversationId/read', requireAuth, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found.' });
+    }
+
+    // Verify requester is a participant
+    if (conversation.userAId !== req.userId && conversation.userBId !== req.userId) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    // Update all unread messages from the other user
+    await prisma.message.updateMany({
+      where: {
+        conversationId,
+        senderId: { not: req.userId },
+        readAt: null,
+      },
+      data: {
+        readAt: new Date(),
+      },
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to mark messages as read.' });
+  }
+});
+
+// POST /conversations — create or retrieve existing conversation
+app.post('/conversations', requireAuth, async (req, res) => {
+  try {
+    const { otherUserId } = req.body;
+
+    if (!otherUserId || otherUserId === req.userId) {
+      return res.status(400).json({ error: 'Invalid otherUserId.' });
+    }
+
+    // Verify both users are friends
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { userAId: req.userId, userBId: otherUserId },
+          { userAId: otherUserId, userBId: req.userId },
+        ],
+      },
+    });
+
+    if (!friendship) {
+      return res.status(403).json({ error: 'You must be friends to message.' });
+    }
+
+    // Upsert conversation with smaller id as userAId
+    const [a, b] = [req.userId, otherUserId].sort();
+
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        userAId_userBId: {
+          userAId: a,
+          userBId: b,
+        },
+      },
+      create: {
+        userAId: a,
+        userBId: b,
+      },
+      update: {},
+    });
+
+    return res.json({ conversationId: conversation.id });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to create conversation.' });
+  }
+});
+
+// POST /users/push-token — update user's push notification token
+app.post('/users/push-token', requireAuth, async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ error: 'Invalid token.' });
+    }
+
+    // Validate token is a valid Expo push token
+    const { Expo } = await import('expo-server-sdk');
+    if (!Expo.isExpoPushToken(token)) {
+      return res.status(400).json({ error: 'Invalid Expo push token format.' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { pushToken: token },
+      select: { id: true, email: true },
+    });
+
+    return res.json({ success: true, message: 'Push token updated.' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update push token.' });
+  }
+});
+
+// POST /users/avatar — update user's avatar colors
+app.post('/users/avatar', requireAuth, async (req, res) => {
+  try {
+    const { bgColor, textColor } = req.body;
+
+    if (!bgColor || !textColor || typeof bgColor !== 'string' || typeof textColor !== 'string') {
+      return res.status(400).json({ error: 'Invalid color values.' });
+    }
+
+    // Basic hex color validation
+    if (!/^#[0-9A-F]{6}$/i.test(bgColor) || !/^#[0-9A-F]{6}$/i.test(textColor)) {
+      return res.status(400).json({ error: 'Colors must be valid hex codes.' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: {
+        avatarBgColor: bgColor,
+        avatarTextColor: textColor,
+      },
+    });
+
+    return res.json({ user: toPublicUser(user) });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update avatar colors.' });
+  }
+});
+
+// ─── SOCKET.IO EVENT HANDLERS ──────────────────────────────────────────────
+
+io.on('connection', (socket) => {
+  console.log(`[Socket] User ${socket.userId} connected`);
+
+  // Join private room by user ID
+  socket.join(socket.userId);
+
+  // send_message event: { conversationId, content }
+  socket.on('send_message', async (data) => {
+    try {
+      const { conversationId, content } = data;
+
+      if (!conversationId || !content || typeof content !== 'string') {
+        return socket.emit('error', { message: 'Invalid message data.' });
+      }
+
+      // Sanitize content
+      const sanitized = sanitizeMessageContent(content);
+      if (!sanitized) {
+        return socket.emit('error', { message: 'Message is empty or too long (max 2000 chars).' });
+      }
+
+      // Verify requester is a participant
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+      });
+
+      if (!conversation) {
+        return socket.emit('error', { message: 'Conversation not found.' });
+      }
+
+      if (conversation.userAId !== socket.userId && conversation.userBId !== socket.userId) {
+        return socket.emit('error', { message: 'Access denied.' });
+      }
+
+      // Save message to database
+      const message = await prisma.message.create({
+        data: {
+          content: sanitized,
+          senderId: socket.userId,
+          conversationId,
+        },
+      });
+
+      // Update conversation's lastMessageAt
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date() },
+      });
+
+      const fullMessage = {
+        id: message.id,
+        content: message.content,
+        senderId: message.senderId,
+        conversationId: message.conversationId,
+        createdAt: message.createdAt,
+        readAt: message.readAt,
+      };
+
+      // Emit to both users' private rooms
+      const otherUserId = conversation.userAId === socket.userId ? conversation.userBId : conversation.userAId;
+      io.to(socket.userId).emit('receive_message', fullMessage);
+      io.to(otherUserId).emit('receive_message', fullMessage);
+
+      // Send push notification if recipient is offline
+      const isRecipientOnline = io.sockets.sockets.has(otherUserId);
+      if (!isRecipientOnline) {
+        try {
+          const recipient = await prisma.user.findUnique({
+            where: { id: otherUserId },
+            select: { fullName: true, pushToken: true },
+          });
+
+          if (recipient && recipient.pushToken) {
+            // Get sender's name for notification
+            const sender = await prisma.user.findUnique({
+              where: { id: socket.userId },
+              select: { fullName: true },
+            });
+
+            // Create and chunk messages for Expo API
+            const message = {
+              to: recipient.pushToken,
+              sound: 'default',
+              title: sender?.fullName || 'StudyApp',
+              body: `${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`,
+              data: {
+                conversationId,
+                senderId: socket.userId,
+                messageId: message.id,
+              },
+            };
+
+            // Initialize Expo client and send notification
+            const client = await initExpoClient();
+            const tickets = await client.sendPushNotificationsAsync([message]);
+            console.log(`[Push] Sent to ${recipient.pushToken}: ${tickets[0].status}`);
+          }
+        } catch (pushError) {
+          console.error('[Push] Error sending notification:', pushError.message);
+        }
+      }
+
+      console.log(`[Socket] Message from ${socket.userId} in ${conversationId}`);
+    } catch (error) {
+      console.error(error);
+      socket.emit('error', { message: 'Unable to send message.' });
+    }
+  });
+
+  // mark_read event: { conversationId, messageId }
+  socket.on('mark_read', async (data) => {
+    try {
+      const { conversationId, messageId } = data;
+
+      if (!messageId || !conversationId) {
+        return socket.emit('error', { message: 'Invalid messageId or conversationId.' });
+      }
+
+      // Verify requester is a participant of the conversation
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+      });
+
+      if (!conversation) {
+        return socket.emit('error', { message: 'Conversation not found.' });
+      }
+
+      if (conversation.userAId !== socket.userId && conversation.userBId !== socket.userId) {
+        return socket.emit('error', { message: 'Access denied.' });
+      }
+
+      // Verify message belongs to the conversation
+      const message = await prisma.message.findUnique({
+        where: { id: messageId },
+      });
+
+      if (!message || message.conversationId !== conversationId) {
+        return socket.emit('error', { message: 'Message not found in this conversation.' });
+      }
+
+      // Update message readAt
+      const updatedMessage = await prisma.message.update({
+        where: { id: messageId },
+        data: { readAt: new Date() },
+      });
+
+      // Emit message_read to sender's private room
+      io.to(updatedMessage.senderId).emit('message_read', {
+        messageId: updatedMessage.id,
+        readAt: updatedMessage.readAt,
+      });
+
+      console.log(`[Socket] Message ${messageId} marked read by ${socket.userId}`);
+    } catch (error) {
+      console.error(error);
+      socket.emit('error', { message: 'Unable to mark message as read.' });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`[Socket] User ${socket.userId} disconnected`);
+  });
+
+  // Listen when user enters a conversation
+  socket.on('conversation:select', (conversationId) => {
+    socket.selectedConversationId = conversationId;
+    console.log(`[Socket] User ${socket.userId} viewing conversation ${conversationId}`);
+  });
+
+  // Listen when user leaves a conversation
+  socket.on('conversation:deselect', () => {
+    socket.selectedConversationId = null;
+    console.log(`[Socket] User ${socket.userId} left conversation`);
+  });
+});
+
+// Export io for use in other modules
+module.exports.io = io;
+
+httpServer.listen(PORT, () => {
+  console.log(`API + Socket.io listening on http://localhost:${PORT}`);
 });

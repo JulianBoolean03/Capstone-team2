@@ -1,3 +1,5 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -9,10 +11,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 
+import { useAuth } from '@/hooks/use-auth';
 import { loginDummyUser, signUpDummyUser, useDummyAuth } from '@/lib/dummy-auth';
+import { registerPushToken, requestNotificationPermissions } from '@/lib/notifications';
+
 
 const ACCENT = '#3B5BFF';
 const SURFACE = '#FFFFFF';
@@ -30,6 +33,7 @@ export default function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { token: authToken } = useAuth();
 
   const isSignup = mode === 'signup';
 
@@ -94,6 +98,12 @@ export default function AuthScreen() {
     if (!result.ok || !result.user) {
       setErrorMessage(result.error ?? 'Unable to login.');
       return;
+    }
+
+    // Register push token after successful login using the token from useAuth hook
+    const pushToken = await requestNotificationPermissions();
+    if (pushToken && authToken) {
+      await registerPushToken(pushToken, authToken);
     }
 
     if (result.user.quizCompleted) {

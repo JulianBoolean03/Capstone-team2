@@ -10,6 +10,8 @@ export type DummyUser = {
   email: string;
   quizCompleted: boolean;
   quizAnswers?: QuizAnswers | null;
+  avatarBgColor: string;
+  avatarTextColor: string;
   createdAt?: string;
 };
 
@@ -31,6 +33,8 @@ export type RecommendationCard = {
   matchPct: number;
   relation: 'none' | 'request_sent' | 'request_received' | 'friends';
   requestId: string | null;
+  avatarBgColor: string;
+  avatarTextColor: string;
 };
 
 export type FriendRequestsPayload = {
@@ -48,6 +52,8 @@ export type FriendRequestsPayload = {
     id: string;
     fullName: string;
     email: string;
+    avatarBgColor: string;
+    avatarTextColor: string;
     connectedAt: string;
   }>;
 };
@@ -86,6 +92,10 @@ export function getCurrentUser() {
 
 export function hasAuthToken() {
   return !!store.token;
+}
+
+export function getAuthToken() {
+  return store.token;
 }
 
 export async function signUpDummyUser(input: {

@@ -1,7 +1,11 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
 
+import { Avatar } from '@/components/avatar';
+import { AvatarColorPicker } from '@/components/color-picker';
+import { useAuth } from '@/hooks/use-auth';
+import { apiRequest } from '@/lib/api';
 import {
   fetchFriendRequests,
   FriendRequestsPayload,
@@ -13,6 +17,7 @@ import {
 export default function ProfileScreen() {
   const router = useRouter();
   const currentUser = useDummyAuth();
+  const { token } = useAuth();
 
   const [friendData, setFriendData] = useState<FriendRequestsPayload>({
     incoming: [],
@@ -21,6 +26,8 @@ export default function ProfileScreen() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [chatLoading, setChatLoading] = useState<string | null>(null);
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -54,12 +61,65 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleOpenChat = async (friendId: string, friendName: string) => {
+    try {
+      setChatLoading(friendId);
+      const data = await apiRequest<{ conversationId: string }>(
+        '/conversations',
+        { method: 'POST', body: JSON.stringify({ otherUserId: friendId }) },
+        token
+      );
+      setChatLoading(null);
+      router.push(`/chat/${data.conversationId}`);
+    } catch (err) {
+      setChatLoading(null);
+      setError(err instanceof Error ? err.message : 'Unable to open chat.');
+    }
+  };
+
+  const handleAvatarColorChange = async (bgColor: string, textColor: string) => {
+    try {
+      await apiRequest(
+        '/users/avatar',
+        { method: 'POST', json: { bgColor, textColor } },
+        token
+      );
+      setShowColorPicker(false);
+      // Trigger a UI refresh by refetching user data
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update avatar colors.');
+    }
+  };
+
   const displayName = currentUser?.fullName ?? 'Guest User';
   const displayEmail = currentUser?.email ?? 'guest@example.com';
+  const avatarBgColor = currentUser?.avatarBgColor ?? '#3B5BFF';
+  const avatarTextColor = currentUser?.avatarTextColor ?? '#FFFFFF';
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
       <View style={styles.headerCard}>
+        <View style={styles.avatarSection}>
+          <Avatar
+            name={displayName}
+            backgroundColor={avatarBgColor}
+            textColor={avatarTextColor}
+            size={80}
+          />
+          <Pressable style={styles.editAvatarBtn} onPress={() => setShowColorPicker(!showColorPicker)}>
+            <Text style={styles.editAvatarText}>Edit</Text>
+          </Pressable>
+        </View>
+
+        {showColorPicker && (
+          <AvatarColorPicker
+            selectedBg={avatarBgColor}
+            selectedText={avatarTextColor}
+            onSelect={handleAvatarColorChange}
+          />
+        )}
+
         <Text style={styles.headerTitle}>{displayName}</Text>
         <Text style={styles.headerSubtitle}>{displayEmail}</Text>
         <View style={styles.statsRow}>
@@ -89,6 +149,12 @@ export default function ProfileScreen() {
         {!loading &&
           friendData.incoming.map((r) => (
             <View key={r.id} style={styles.requestRow}>
+              <Avatar
+                name={r.sender.fullName}
+                backgroundColor={r.sender.avatarBgColor}
+                textColor={r.sender.avatarTextColor}
+                size={40}
+              />
               <View style={styles.requestCopy}>
                 <Text style={styles.requestName}>{r.sender.fullName}</Text>
                 <Text style={styles.requestEmail}>{r.sender.email}</Text>
@@ -110,8 +176,25 @@ export default function ProfileScreen() {
         {!friendData.friends.length && <Text style={styles.infoText}>No friends yet.</Text>}
         {friendData.friends.map((f) => (
           <View key={f.id} style={styles.friendRow}>
-            <Text style={styles.friendName}>{f.fullName}</Text>
-            <Text style={styles.friendEmail}>{f.email}</Text>
+            <Avatar
+              name={f.fullName}
+              backgroundColor={f.avatarBgColor}
+              textColor={f.avatarTextColor}
+              size={40}
+            />
+            <View style={styles.friendInfo}>
+              <Text style={styles.friendName}>{f.fullName}</Text>
+              <Text style={styles.friendEmail}>{f.email}</Text>
+            </View>
+            <Pressable
+              style={[styles.messageFriendBtn, chatLoading === f.id && styles.messageFriendBtnLoading]}
+              onPress={() => handleOpenChat(f.id, f.fullName)}
+              disabled={chatLoading === f.id}
+            >
+              <Text style={styles.messageFriendText}>
+                {chatLoading === f.id ? '⏳' : '💬'}
+              </Text>
+            </Pressable>
           </View>
         ))}
       </View>
@@ -134,8 +217,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E6EBF7',
   },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: '#0B1220' },
-  headerSubtitle: { marginTop: 4, color: '#5B6476' },
+  avatarSection: {
+    alignItems: 'center',
+    marginBottom: 12,
+    position: 'relative',
+  },
+  editAvatarBtn: {
+    marginTop: 8,
+    backgroundColor: '#3B5BFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  editAvatarText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#0B1220', textAlign: 'center' },
+  headerSubtitle: { marginTop: 4, color: '#5B6476', textAlign: 'center' },
   statsRow: { flexDirection: 'row', marginTop: 14, gap: 10 },
   stat: {
     flex: 1,
@@ -164,11 +264,13 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 8,
     gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  requestCopy: { gap: 3 },
+  requestCopy: { gap: 3, flex: 1 },
   requestName: { fontWeight: '700', color: '#0B1220' },
-  requestEmail: { color: '#5B6476' },
-  requestActions: { flexDirection: 'row', gap: 8 },
+  requestEmail: { color: '#5B6476', fontSize: 13 },
+  requestActions: { flexDirection: 'row', gap: 6 },
   acceptBtn: {
     backgroundColor: '#E8F7ED',
     paddingVertical: 8,
@@ -189,9 +291,29 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  friendInfo: {
+    flex: 1,
   },
   friendName: { fontWeight: '700', color: '#0B1220' },
-  friendEmail: { marginTop: 3, color: '#5B6476' },
+  friendEmail: { marginTop: 3, color: '#5B6476', fontSize: 13 },
+  messageFriendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0f8ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  messageFriendBtnLoading: {
+    opacity: 0.6,
+  },
+  messageFriendText: {
+    fontSize: 18,
+  },
   logoutBtn: {
     marginTop: 14,
     backgroundColor: '#111827',
