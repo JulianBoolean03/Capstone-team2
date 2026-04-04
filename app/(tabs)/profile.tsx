@@ -86,7 +86,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ backgroundColor: BG }} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* Profile card */}
         <View style={styles.profileCard}>
           <Avatar name={displayName} size={72} />
@@ -171,7 +171,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BRAND },
+  safe: { flex: 1, backgroundColor: BG },
   header: {
     backgroundColor: BRAND,
     flexDirection: 'row',
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  container: { padding: 16, paddingBottom: 32, backgroundColor: BG },
+  container: { flexGrow: 1, padding: 16, paddingBottom: 32, backgroundColor: BG },
 
   profileCard: {
     backgroundColor: SURFACE,

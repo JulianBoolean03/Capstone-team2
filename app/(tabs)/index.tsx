@@ -86,12 +86,14 @@ export default function ChatsScreen() {
   const renderItem = ({ item }: { item: Conversation }) => {
     const other = item.otherMembers[0];
     const name = other?.fullName ?? 'Unknown';
-    const lastMsg = item.lastMessage?.text ?? 'No messages yet';
+    const isMyMsg = item.lastMessage?.senderId === currentUser?.id;
+    const lastMsg = item.lastMessage
+      ? (isMyMsg ? `You: ${item.lastMessage.text}` : item.lastMessage.text)
+      : 'No messages yet';
     const time = item.lastMessage?.createdAt
       ? formatTime(item.lastMessage.createdAt)
       : formatTime(item.createdAt);
-    const isUnread =
-      !!item.lastMessage && item.lastMessage.senderId !== currentUser?.id;
+    const isUnread = !!item.lastMessage && !isMyMsg;
 
     return (
       <Pressable
@@ -214,7 +216,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  searchRow: { paddingHorizontal: 14, paddingVertical: 10, backgroundColor: BRAND },
+  searchRow: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 14, backgroundColor: BRAND },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -177,7 +177,7 @@ export default function ChatScreen() {
         {chatName ? <Avatar name={chatName} size={36} /> : <View style={{ width: 36 }} />}
         <View style={styles.headerMid}>
           <Text style={styles.headerName} numberOfLines={1}>{chatName || '...'}</Text>
-          <Text style={styles.headerSub}>Study Stack</Text>
+          <Text style={styles.headerSub}>Study Partner</Text>
         </View>
         <Pressable style={styles.headerActionBtn}>
           <Ionicons name="ellipsis-vertical" size={20} color={SURFACE} />
