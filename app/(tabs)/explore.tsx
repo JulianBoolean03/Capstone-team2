@@ -13,11 +13,15 @@ import {
   fetchRecommendations,
   RecommendationCard,
   sendFriendRequest,
+  createConversation,
 } from '@/lib/dummy-auth';
+
+import { useRouter } from 'expo-router';
 
 type GroupTab = 'Students' | 'Groups';
 
 export default function ExploreScreen() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<GroupTab>('Students');
   const [query, setQuery] = useState('');
   const [students, setStudents] = useState<RecommendationCard[]>([]);
@@ -58,6 +62,15 @@ export default function ExploreScreen() {
       await loadRecommendations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to send request.');
+    }
+  };
+
+  const handleMessage = async (userId: string) => {
+    try {
+      const conversationId = await createConversation(userId);
+      router.push(`/chat/${conversationId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to open chat.');
     }
   };
 
@@ -138,8 +151,15 @@ export default function ExploreScreen() {
                       </View>
                     )}
                     {s.relation === 'friends' && (
-                      <View style={[styles.messageBtn, styles.messageBtnSuccess]}>
-                        <Text style={styles.messageBtnText}>Friends ✓</Text>
+                      <View style={styles.friendRow}>
+                        <View style={[styles.messageBtn, styles.messageBtnSuccess, { flex: 1 }]}>
+                          <Text style={styles.messageBtnText}>Friends ✓</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.messageBtn, { flex: 1, backgroundColor: '#3B5BFF' }]}
+                          onPress={() => handleMessage(s.id)}>
+                          <Text style={styles.messageBtnText}>💬 Message</Text>
+                        </TouchableOpacity>
                       </View>
                     )}
                   </View>
@@ -234,7 +254,7 @@ const styles = StyleSheet.create({
   matchPillText: { color: '#2E5BFF', fontWeight: '800', fontSize: 12 },
   messageBtn: {
     marginTop: 12,
-    borderRadius: 12,
+    borderRadius: 10,
     backgroundColor: '#111827',
     alignItems: 'center',
     justifyContent: 'center',
@@ -255,6 +275,7 @@ const styles = StyleSheet.create({
     borderColor: '#E5EAF8',
     padding: 16,
   },
+  friendRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   emptyTitle: { fontWeight: '800', color: '#111827', marginBottom: 6 },
   emptyText: { color: '#4B5563' },
 });
