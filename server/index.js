@@ -8,6 +8,7 @@ const { computeMatch } = require('./recommendation');
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
+console.log(`process.env.PORT = ${process.env.PORT}, using PORT = ${PORT}`);
 
 app.use(cors());
 app.use(express.json());
@@ -395,5 +396,5 @@ app.post('/friends/request/:id/respond', requireAuth, async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API listening on http://localhost:${PORT}`);
+  console.log(`API listening on port ${PORT} (0.0.0.0)`);
 });
