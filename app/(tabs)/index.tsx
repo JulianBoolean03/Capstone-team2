@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -9,7 +9,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+
+import { fetchConversations, Conversation, useDummyAuth } from '@/lib/dummy-auth';
 
 const BRAND = '#3B5BFF';
 const BRAND_DARK = '#2A46E5';
@@ -18,83 +21,86 @@ const MUTED = '#6B7280';
 const LINE = '#EEF2F7';
 const SURFACE = '#FFFFFF';
 
-const AVATARS = [
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=facearea&w=96&h=96&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=facearea&w=96&h=96&q=80',
-  'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=facearea&w=96&h=96&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&w=96&h=96&q=80',
-  'https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=facearea&w=96&h=96&q=80',
-];
+function formatTime(dateStr: string) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
 
-const CONVERSATIONS = [
-  {
-    id: 'c1',
-    name: 'Sarah Chen',
-    meta: 'CS 101',
-    message: 'See you at the library tomorrow!',
-    time: '2:45 PM',
-    unread: 2,
-  },
-  {
-    id: 'c2',
-    name: 'Computer Science Study Group',
-    meta: 'CS 201',
-    message: 'Anyone want to review algorithms?',
-    time: '1:30 PM',
-    unread: 6,
-  },
-  {
-    id: 'c3',
-    name: 'Alex Rivera',
-    meta: 'Math 220',
-    message: 'Thanks for the notes!',
-    time: 'Yesterday',
-    unread: 0,
-  },
-  {
-    id: 'c4',
-    name: 'Physics Lab Partners',
-    meta: 'Physics 150',
-    message: 'Email lab report due Friday',
-    time: 'Yesterday',
-    unread: 0,
-  },
-  {
-    id: 'c5',
-    name: 'Maya Patel',
-    meta: 'Biology 101',
-    message: 'Did you understand today\'s lecture?',
-    time: 'Monday',
-    unread: 0,
-  },
-];
+  if (diffDays === 0) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else if (diffDays === 1) {
+    return 'Yesterday';
+  } else if (diffDays < 7) {
+    return date.toLocaleDateString([], { weekday: 'long' });
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
 
-type Conversation = (typeof CONVERSATIONS)[number];
+function InitialsAvatar({ name, size = 44 }: { name: string; size?: number }) {
+  const initials = name
+    .split(' ')
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
 
-export default function HomeScreen() {
-  const data = useMemo(() => {
-    return CONVERSATIONS.map((item, index) => ({
-      ...item,
-      avatar: AVATARS[index % AVATARS.length],
-    }));
+  return (
+    <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Text style={styles.avatarText}>{initials}</Text>
+    </View>
+  );
+}
+
+export default function ChatsScreen() {
+  const router = useRouter();
+  const currentUser = useDummyAuth();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await fetchConversations();
+      setConversations(data);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const renderItem = ({ item }: { item: Conversation & { avatar: string } }) => {
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const filtered = conversations.filter((c) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return c.otherMembers.some((m) => m.fullName.toLowerCase().includes(q));
+  });
+
+  const renderItem = ({ item }: { item: Conversation }) => {
+    const other = item.otherMembers[0];
+    const name = other?.fullName ?? 'Unknown';
+    const lastMsg = item.lastMessage?.text ?? 'No messages yet';
+    const time = item.lastMessage?.createdAt
+      ? formatTime(item.lastMessage.createdAt)
+      : formatTime(item.createdAt);
+    const isUnread = item.lastMessage?.senderId !== currentUser?.id && !!item.lastMessage;
+
     return (
-      <Pressable style={styles.row} onPress={() => null}>
-        <Image source={{ uri: item.avatar }} style={styles.avatar} />
+      <Pressable style={styles.row} onPress={() => router.push(`/chat/${item.id}`)}>
+        <InitialsAvatar name={name} />
         <View style={styles.rowContent}>
           <View style={styles.rowTop}>
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.time}>{item.time}</Text>
+            <Text style={[styles.name, isUnread && styles.nameUnread]}>{name}</Text>
+            <Text style={styles.time}>{time}</Text>
           </View>
-          <View style={styles.rowMeta}>
-            <Text style={styles.meta}>{item.meta}</Text>
-            {item.unread > 0 && <View style={styles.unreadDot} />}
+          <View style={styles.rowBottom}>
+            <Text style={[styles.message, isUnread && styles.messageUnread]} numberOfLines={1}>
+              {lastMsg}
+            </Text>
+            {isUnread && <View style={styles.unreadDot} />}
           </View>
-          <Text style={styles.message} numberOfLines={1}>
-            {item.message}
-          </Text>
         </View>
       </Pressable>
     );
@@ -110,39 +116,49 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.brandText}>Study Stack</Text>
           </View>
-          <Pressable style={styles.settings} onPress={() => null}>
-            <Ionicons name="settings-outline" size={18} color="#FFFFFF" />
+          <Pressable style={styles.iconBtn} onPress={load}>
+            <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
           </Pressable>
         </View>
-
         <View style={styles.searchWrap}>
           <Ionicons name="search" size={16} color="#64748B" />
           <TextInput
-            placeholder="Search chats or courses..."
+            placeholder="Search conversations..."
             placeholderTextColor="#94A3B8"
             style={styles.searchInput}
+            value={query}
+            onChangeText={setQuery}
           />
         </View>
       </View>
 
       <FlatList
-        data={data}
+        data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
         showsVerticalScrollIndicator={false}
-        ListFooterComponent={<View style={{ height: 16 }} />}
+        onRefresh={load}
+        refreshing={loading}
+        ListEmptyComponent={
+          !loading ? (
+            <View style={styles.empty}>
+              <Ionicons name="chatbubble-outline" size={48} color="#CBD5E1" />
+              <Text style={styles.emptyTitle}>No conversations yet</Text>
+              <Text style={styles.emptyText}>
+                Find study partners in Discover and start a chat.
+              </Text>
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: SURFACE,
-  },
+  safe: { flex: 1, backgroundColor: SURFACE },
   header: {
     backgroundColor: BRAND,
     paddingHorizontal: 18,
@@ -162,11 +178,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brandBadge: {
     width: 28,
     height: 28,
@@ -175,12 +187,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  brandText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  settings: {
+  brandText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  iconBtn: {
     width: 30,
     height: 30,
     borderRadius: 10,
@@ -197,14 +205,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: INK,
-  },
-  listContent: {
-    paddingTop: 10,
-  },
+  searchInput: { flex: 1, fontSize: 13, color: INK },
+  listContent: { paddingTop: 10 },
+  emptyContainer: { flex: 1 },
   row: {
     flexDirection: 'row',
     gap: 12,
@@ -213,53 +216,37 @@ const styles = StyleSheet.create({
     backgroundColor: SURFACE,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: BRAND,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  rowContent: {
-    flex: 1,
-  },
+  avatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  rowContent: { flex: 1 },
   rowTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  name: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: INK,
-  },
-  time: {
-    fontSize: 11,
-    color: '#94A3B8',
-  },
-  rowMeta: {
+  name: { fontSize: 14, fontWeight: '600', color: INK },
+  nameUnread: { fontWeight: '800' },
+  time: { fontSize: 11, color: '#94A3B8' },
+  rowBottom: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 2,
+    justifyContent: 'space-between',
+    marginTop: 3,
   },
-  meta: {
-    fontSize: 11,
-    color: BRAND_DARK,
-    fontWeight: '600',
-  },
+  message: { fontSize: 12.5, color: MUTED, flex: 1 },
+  messageUnread: { color: INK, fontWeight: '600' },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: BRAND,
+    marginLeft: 6,
   },
-  message: {
-    fontSize: 12.5,
-    color: MUTED,
-    marginTop: 3,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: LINE,
-    marginLeft: 74,
-  },
+  separator: { height: 1, backgroundColor: LINE, marginLeft: 74 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 80 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: INK },
+  emptyText: { fontSize: 13, color: MUTED, textAlign: 'center', paddingHorizontal: 32 },
 });
