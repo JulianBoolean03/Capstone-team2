@@ -235,6 +235,62 @@ export async function respondToFriendRequest(requestId: string, action: 'accept'
   );
 }
 
+export type Conversation = {
+  id: string;
+  otherMembers: { id: string; fullName: string; email: string }[];
+  lastMessage: { text: string; createdAt: string; senderId: string } | null;
+  createdAt: string;
+};
+
+export type Message = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  text: string;
+  createdAt: string;
+  sender: { id: string; fullName: string };
+};
+
+export async function fetchConversations(): Promise<Conversation[]> {
+  if (!store.token) return [];
+  const data = await apiRequest<{ conversations: Conversation[] }>(
+    '/conversations',
+    { method: 'GET' },
+    store.token,
+  );
+  return data.conversations;
+}
+
+export async function createConversation(otherUserId: string): Promise<string> {
+  if (!store.token) throw new Error('Not authenticated.');
+  const data = await apiRequest<{ conversationId: string }>(
+    '/conversations',
+    { method: 'POST', json: { otherUserId } },
+    store.token,
+  );
+  return data.conversationId;
+}
+
+export async function fetchMessages(conversationId: string): Promise<Message[]> {
+  if (!store.token) return [];
+  const data = await apiRequest<{ messages: Message[] }>(
+    `/conversations/${conversationId}/messages`,
+    { method: 'GET' },
+    store.token,
+  );
+  return data.messages;
+}
+
+export async function sendMessage(conversationId: string, text: string): Promise<Message> {
+  if (!store.token) throw new Error('Not authenticated.');
+  const data = await apiRequest<{ message: Message }>(
+    `/conversations/${conversationId}/messages`,
+    { method: 'POST', json: { text } },
+    store.token,
+  );
+  return data.message;
+}
+
 declare global {
   var __authStore: AuthState | undefined;
 }

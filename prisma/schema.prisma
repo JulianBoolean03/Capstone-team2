@@ -17,10 +17,12 @@ model User {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  sentRequests     FriendRequest[] @relation("FriendRequestSender")
-  receivedRequests FriendRequest[] @relation("FriendRequestReceiver")
-  friendshipsA     Friendship[]    @relation("FriendshipA")
-  friendshipsB     Friendship[]    @relation("FriendshipB")
+  sentRequests     FriendRequest[]      @relation("FriendRequestSender")
+  receivedRequests FriendRequest[]      @relation("FriendRequestReceiver")
+  friendshipsA     Friendship[]         @relation("FriendshipA")
+  friendshipsB     Friendship[]         @relation("FriendshipB")
+  conversations    ConversationMember[]
+  messages         Message[]
 }
 
 model FriendRequest {
@@ -48,4 +50,34 @@ model Friendship {
   userB User @relation("FriendshipB", fields: [userBId], references: [id], onDelete: Cascade)
 
   @@unique([userAId, userBId])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  members  ConversationMember[]
+  messages Message[]
+}
+
+model ConversationMember {
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  text           String
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
 }
