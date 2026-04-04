@@ -13,7 +13,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { fetchMessages, sendMessage, Message, useDummyAuth } from '@/lib/dummy-auth';
+import { fetchMessages, sendMessage, fetchConversations, Message, useDummyAuth } from '@/lib/dummy-auth';
 
 const BRAND = '#3B5BFF';
 const INK = '#0F172A';
@@ -31,13 +31,16 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [chatName, setChatName] = useState('Chat');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const data = await fetchMessages(id);
-    setMessages(data);
+    const [msgs, convos] = await Promise.all([fetchMessages(id), fetchConversations()]);
+    setMessages(msgs);
+    const convo = convos.find((c) => c.id === id);
+    if (convo?.otherMembers[0]) setChatName(convo.otherMembers[0].fullName);
   }, [id]);
 
   useEffect(() => {
@@ -90,7 +93,7 @@ export default function ChatScreen() {
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color={INK} />
         </Pressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>Chat</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{chatName}</Text>
         <View style={{ width: 36 }} />
       </View>
 

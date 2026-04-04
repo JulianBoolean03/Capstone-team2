@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { prisma } = require('../db');
 const { signToken, requireAuth } = require('../auth');
+const { createWelcomeConversation } = require('../bot');
 
 const router = express.Router();
 
@@ -37,6 +38,9 @@ router.post('/signup', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({ data: { fullName, email, passwordHash } });
     const token = signToken(user.id);
+
+    // Fire and forget — don't block signup if this fails
+    createWelcomeConversation(user.id).catch(console.error);
 
     return res.status(201).json({ token, user: toPublicUser(user) });
   } catch (error) {

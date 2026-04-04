@@ -12,7 +12,7 @@ router.get('/', requireAuth, async (req, res) => {
 
     const [others, friendships, pending] = await Promise.all([
       prisma.user.findMany({
-        where: { id: { not: req.userId }, quizCompleted: true },
+        where: { id: { not: req.userId }, quizCompleted: true, email: { not: 'bot@studystack.app' } },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.friendship.findMany({
