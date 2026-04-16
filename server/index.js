@@ -13,6 +13,7 @@ const PORT = Number(process.env.PORT || 4000);
 app.use(cors());
 app.use(express.json());
 
+app.get('/', (_req, res) => res.json({ ok: true, service: 'StudyStack API' }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.use('/auth', authRoutes.router);
