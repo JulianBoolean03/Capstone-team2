@@ -12,6 +12,11 @@ router.post('/request', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid receiver.' });
     }
 
+    const receiver = await prisma.user.findUnique({ where: { id: receiverId } });
+    if (!receiver) {
+      return res.status(404).json({ error: 'Receiver not found.' });
+    }
+
     const existingFriendship = await prisma.friendship.findFirst({
       where: {
         OR: [
@@ -32,7 +37,11 @@ router.post('/request', requireAuth, async (req, res) => {
       const [a, b] = [req.userId, receiverId].sort();
       await prisma.$transaction([
         prisma.friendRequest.update({ where: { id: reverse.id }, data: { status: 'accepted' } }),
-        prisma.friendship.create({ data: { userAId: a, userBId: b } }),
+        prisma.friendship.upsert({
+          where: { userAId_userBId: { userAId: a, userBId: b } },
+          create: { userAId: a, userBId: b },
+          update: {},
+        }),
       ]);
       return res.status(201).json({ accepted: true });
     }

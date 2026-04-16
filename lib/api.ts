@@ -1,6 +1,14 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 function hostFromUri(hostUri?: string | null) {
   if (!hostUri) return null;
   const host = hostUri.split(':')[0]?.trim();
@@ -73,7 +81,7 @@ export async function apiRequest<T>(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.error || 'Request failed.');
+      throw new ApiError(data.error || 'Request failed.', response.status);
     }
 
     return data as T;

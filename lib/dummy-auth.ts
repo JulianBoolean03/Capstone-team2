@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { apiRequest } from '@/lib/api';
+import { apiRequest, ApiError } from '@/lib/api';
+
+const STORAGE_KEY_TOKEN = 'studyapp_auth_token';
+const STORAGE_KEY_USER = 'studyapp_auth_user';
 
 export type QuizAnswers = Record<string, string>;
 
@@ -71,6 +75,37 @@ function normalizeError(error: unknown) {
   return 'Something went wrong.';
 }
 
+async function persistAuth() {
+  try {
+    if (store.token && store.user) {
+      await AsyncStorage.setItem(STORAGE_KEY_TOKEN, store.token);
+      await AsyncStorage.setItem(STORAGE_KEY_USER, JSON.stringify(store.user));
+    } else {
+      await AsyncStorage.multiRemove([STORAGE_KEY_TOKEN, STORAGE_KEY_USER]);
+    }
+  } catch {
+    // Storage write failed — non-critical, session just won't survive restart
+  }
+}
+
+export async function rehydrateAuth(): Promise<boolean> {
+  try {
+    const [token, userJson] = await AsyncStorage.multiGet([STORAGE_KEY_TOKEN, STORAGE_KEY_USER]);
+    const savedToken = token[1];
+    const savedUser = userJson[1];
+
+    if (savedToken && savedUser) {
+      store.token = savedToken;
+      store.user = JSON.parse(savedUser);
+      notify();
+      return true;
+    }
+  } catch {
+    // Corrupted storage — start fresh
+  }
+  return false;
+}
+
 export function subscribeAuth(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -102,6 +137,7 @@ export async function signUpDummyUser(input: {
     store.token = data.token;
     store.user = data.user;
     notify();
+    await persistAuth();
 
     return { ok: true, user: data.user };
   } catch (error) {
@@ -122,6 +158,7 @@ export async function loginDummyUser(input: {
     store.token = data.token;
     store.user = data.user;
     notify();
+    await persistAuth();
 
     return { ok: true, user: data.user };
   } catch (error) {
@@ -140,19 +177,24 @@ export async function refreshCurrentUser(): Promise<AuthResult> {
     const data = await apiRequest<{ user: DummyUser }>('/auth/me', { method: 'GET' }, store.token);
     store.user = data.user;
     notify();
+    await persistAuth();
     return { ok: true, user: data.user };
   } catch (error) {
-    store.token = null;
-    store.user = null;
-    notify();
+    if (error instanceof ApiError && error.status === 401) {
+      store.token = null;
+      store.user = null;
+      notify();
+      await persistAuth();
+    }
     return { ok: false, error: normalizeError(error) };
   }
 }
 
-export function logoutDummyUser() {
+export async function logoutDummyUser() {
   store.token = null;
   store.user = null;
   notify();
+  await persistAuth();
 }
 
 export async function completeCurrentUserQuiz(answers: QuizAnswers): Promise<AuthResult> {
@@ -172,6 +214,7 @@ export async function completeCurrentUserQuiz(answers: QuizAnswers): Promise<Aut
 
     store.user = data.user;
     notify();
+    await persistAuth();
 
     return { ok: true, user: data.user };
   } catch (error) {

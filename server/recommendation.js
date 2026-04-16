@@ -1,5 +1,5 @@
 function computeMatch(answersA = {}, answersB = {}) {
-  const keys = Object.keys(answersA);
+  const keys = [...new Set([...Object.keys(answersA), ...Object.keys(answersB)])];
   if (!keys.length) {
     return { score: 0, overlap: 0, total: 0 };
   }
@@ -8,7 +8,7 @@ function computeMatch(answersA = {}, answersB = {}) {
   let overlap = 0;
 
   for (const key of keys) {
-    if (answersB[key] == null) {
+    if (answersA[key] == null || answersB[key] == null) {
       continue;
     }
     overlap += 1;
